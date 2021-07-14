@@ -83,14 +83,15 @@ class RunManager():
         self.loader = loader
 
         self.tb = SummaryWriter(comment=f'-{run}')
-
+        
         images, labels = next(iter(self.loader))
-        images, labels = images.cuda(), labels.cuda()
-
         grid = torchvision.utils.make_grid(images)
 
         self.tb.add_image('images', grid)
-        self.tb.add_graph(self.network, images)
+        self.tb.add_graph(
+            self.network,
+            images.to(getattr(run, 'device', 'cpu'))
+        )
 
     def end_run(self):
         self.tb.close()
@@ -158,16 +159,17 @@ train_set = torchvision.datasets.FashionMNIST(
 )
 
 params = OrderedDict(
-    lr = [.01, .001]
-    ,batch_size = [10, 100, 1000]
-    ,num_epochs = [5, 10]
+    lr = [.01]
+    ,batch_size = [1000, 10000, 20000]
+    ,num_epochs = [5]
+    ,device = ['cuda', 'cpu']
 )
 
 m = RunManager()
 for run in RunBuilder.get_runs(params):
 
-    network = Network()
-    network = network.cuda()
+    device = torch.device(run.device)
+    network = Network().to(device)
     loader = torch.utils.data.DataLoader(train_set, batch_size=run.batch_size)
     optimizer = optim.Adam(network.parameters(), lr=run.lr)
     
@@ -176,8 +178,8 @@ for run in RunBuilder.get_runs(params):
         m.begin_epoch()
         for batch in loader:
 
-            images, labels = batch
-            images, labels = images.cuda(), labels.cuda()
+            images = batch[0].to(device)
+            labels = batch[1].to(device)
             preds = network(images) # feed batch forward through the network
             loss = F.cross_entropy(preds, labels) # calculate the loss
             optimizer.zero_grad() # zero out the gradients
