@@ -1,5 +1,4 @@
 from collections import namedtuple
-from lib2to3.pgen2.pgen import DFAState
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
