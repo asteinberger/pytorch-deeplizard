@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 from resources.plotcm import plot_confusion_matrix
 
+from itertools import product
+
 from torch.utils.tensorboard import SummaryWriter
 
 torch.set_printoptions(linewidth=120)
@@ -64,74 +66,82 @@ train_set = torchvision.datasets.FashionMNIST(
     ])
 )
 
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=100)
-
-tb = SummaryWriter()
-
-network = Network()
-network = network.cuda()
-
-images, labels = next(iter(train_loader))
-images, labels = images.cuda(), labels.cuda()
-grid = torchvision.utils.make_grid(images)
-
-tb.add_image('images', grid)
-tb.add_graph(network, images)
-tb.close()
-
-optimizer = optim.Adam(network.parameters(), lr=0.01)
-
-for epoch in range(10):
-    total_loss = 0
-    total_correct = 0
-
-    for batch in train_loader:
-        images, labels = batch
-        images, labels = images.cuda(), labels.cuda()
-
-        preds = network(images) # feed batch forward through the network
-        loss = F.cross_entropy(preds, labels) # calculate the loss
-
-        optimizer.zero_grad() # zero out the gradients
-        loss.backward() # calculate the gradients
-        optimizer.step() # update the weights
-
-        total_loss += loss.item()
-        total_correct += get_num_correct(preds, labels)
-
-    tb.add_scalar('Loss', total_loss, epoch)
-    tb.add_scalar('Number Correct', total_correct, epoch)
-    tb.add_scalar('Accuracy', total_correct / len(train_set), epoch)
-
-    tb.add_histogram('conv1.bias', network.conv1.bias, epoch)
-    tb.add_histogram('conv1.weight', network.conv1.weight, epoch)
-    tb.add_histogram('conv1.weight.grad', network.conv1.weight.grad, epoch)
-
-    print("epoch:", epoch, "total_correct:", total_correct, "loss:", total_loss)
-
-train_preds = get_all_preds(network, train_loader)
-preds_correct = get_num_correct(train_preds.cuda(), train_set.targets.cuda())
-
-print("total correct:", preds_correct)
-print("accuracy:", preds_correct / len(train_set))
-
-stacked = torch.stack(
-    (
-        train_set.targets.cuda()
-        ,train_preds.argmax(dim=1).cuda()
-    )
-    ,dim=1
+parameters = dict(
+    lr = [.01, .001]
+    ,batch_size = [10, 100, 1000]
 )
+param_values = [v for v in parameters.values()]
 
-cmt = torch.zeros(10, 10, dtype=torch.int32)
+for lr, batch_size in product(*param_values):
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size)
 
-for p in stacked.cuda():
-    tl, pl = p.tolist()
-    cmt[tl, pl] = cmt[tl, pl] + 1
+    comment = f' batch_size={batch_size} lr={lr}'
+    tb = SummaryWriter(comment=comment)
 
-print(cmt.cuda())
+    network = Network()
+    network = network.cuda()
 
-cm = confusion_matrix(train_set.targets.cpu(), train_preds.argmax(dim=1).cpu())
-names = ('T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot')
-plt.figure(figsize=(10,10))
-plot_confusion_matrix(cm, names)
+    images, labels = next(iter(train_loader))
+    images, labels = images.cuda(), labels.cuda()
+    grid = torchvision.utils.make_grid(images)
+
+    tb.add_image('images', grid)
+    tb.add_graph(network, images)
+    tb.close()
+
+    optimizer = optim.Adam(network.parameters(), lr=lr)
+
+    for epoch in range(10):
+        total_loss = 0
+        total_correct = 0
+
+        for batch in train_loader:
+            images, labels = batch
+            images, labels = images.cuda(), labels.cuda()
+
+            preds = network(images) # feed batch forward through the network
+            loss = F.cross_entropy(preds, labels) # calculate the loss
+
+            optimizer.zero_grad() # zero out the gradients
+            loss.backward() # calculate the gradients
+            optimizer.step() # update the weights
+
+            total_loss += loss.item() * batch_size
+            total_correct += get_num_correct(preds, labels)
+
+        tb.add_scalar('Loss', total_loss, epoch)
+        tb.add_scalar('Number Correct', total_correct, epoch)
+        tb.add_scalar('Accuracy', total_correct / len(train_set), epoch)
+
+        for name, weight in network.named_parameters():
+            tb.add_histogram(name, weight, epoch)
+            tb.add_histogram(f'{name}.grad', weight.grad, epoch)
+
+        print("batch_size:", batch_size, "lr:", lr, "epoch:", epoch, "total_correct:", total_correct, "loss:", total_loss)
+
+    train_preds = get_all_preds(network, train_loader)
+    preds_correct = get_num_correct(train_preds.cuda(), train_set.targets.cuda())
+
+    print("total correct:", preds_correct)
+    print("accuracy:", preds_correct / len(train_set))
+
+    stacked = torch.stack(
+        (
+            train_set.targets.cuda()
+            ,train_preds.argmax(dim=1).cuda()
+        )
+        ,dim=1
+    )
+
+    cmt = torch.zeros(10, 10, dtype=torch.int32)
+
+    for p in stacked.cuda():
+        tl, pl = p.tolist()
+        cmt[tl, pl] = cmt[tl, pl] + 1
+
+    print(cmt.cuda())
+
+# cm = confusion_matrix(train_set.targets.cpu(), train_preds.argmax(dim=1).cpu())
+# names = ('T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot')
+# plt.figure(figsize=(10,10))
+# plot_confusion_matrix(cm, names)
