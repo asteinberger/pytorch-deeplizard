@@ -158,11 +158,32 @@ train_set = torchvision.datasets.FashionMNIST(
     ])
 )
 
+loader = torch.utils.data.DataLoader(train_set, batch_size=len(train_set))
+data = next(iter(loader))
+mean = data[0].mean()
+std = data[0].std()
+
+train_set_normal = torchvision.datasets.FashionMNIST(
+    root='./data'
+    ,train=True
+    ,download=True
+    ,transform=transforms.Compose([
+        transforms.ToTensor()
+        ,transforms.Normalize(mean, std)
+    ])
+)
+
+trainsets = {
+    'not_normal': train_set
+    ,'normal': train_set_normal
+}
+
 params = OrderedDict(
     lr = [.01]
-    ,batch_size = [1000, 10000, 20000]
-    ,num_epochs = [5]
-    ,device = ['cuda', 'cpu']
+    ,batch_size = [1000]
+    ,num_epochs = [20]
+    ,device = ['cuda']
+    ,trainset = ['not_normal', 'normal']
 )
 
 m = RunManager()
@@ -170,7 +191,7 @@ for run in RunBuilder.get_runs(params):
 
     device = torch.device(run.device)
     network = Network().to(device)
-    loader = torch.utils.data.DataLoader(train_set, batch_size=run.batch_size)
+    loader = torch.utils.data.DataLoader(trainsets[run.trainset], batch_size=run.batch_size)
     optimizer = optim.Adam(network.parameters(), lr=run.lr)
     
     m.begin_run(run, network, loader)
