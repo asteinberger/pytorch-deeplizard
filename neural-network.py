@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 from resources.plotcm import plot_confusion_matrix
 
+from torch.utils.tensorboard import SummaryWriter
 
 torch.set_printoptions(linewidth=120)
 torch.set_grad_enabled(True)
@@ -48,7 +49,7 @@ class Network(nn.Module):
         t = F.relu(self.conv2(t))
         t = F.max_pool2d(t, kernel_size=2, stride=2)
 
-        t = F.relu(self.fc1(t.reshape(-1, 12*4*4)))
+        t = F.relu(self.fc1(t.flatten(start_dim=1)))
         t = F.relu(self.fc2(t))
         t = self.out(t)
 
@@ -63,14 +64,24 @@ train_set = torchvision.datasets.FashionMNIST(
     ])
 )
 
+train_loader = torch.utils.data.DataLoader(train_set, batch_size=100)
+
+tb = SummaryWriter()
+
 network = Network()
 network = network.cuda()
 
-train_loader = torch.utils.data.DataLoader(train_set, batch_size=100)
+images, labels = next(iter(train_loader))
+images, labels = images.cuda(), labels.cuda()
+grid = torchvision.utils.make_grid(images)
+
+tb.add_image('images', grid)
+tb.add_graph(network, images)
+tb.close()
 
 optimizer = optim.Adam(network.parameters(), lr=0.01)
 
-for epoch in range(5):
+for epoch in range(10):
     total_loss = 0
     total_correct = 0
 
@@ -87,6 +98,14 @@ for epoch in range(5):
 
         total_loss += loss.item()
         total_correct += get_num_correct(preds, labels)
+
+    tb.add_scalar('Loss', total_loss, epoch)
+    tb.add_scalar('Number Correct', total_correct, epoch)
+    tb.add_scalar('Accuracy', total_correct / len(train_set), epoch)
+
+    tb.add_histogram('conv1.bias', network.conv1.bias, epoch)
+    tb.add_histogram('conv1.weight', network.conv1.weight, epoch)
+    tb.add_histogram('conv1.weight.grad', network.conv1.weight.grad, epoch)
 
     print("epoch:", epoch, "total_correct:", total_correct, "loss:", total_loss)
 
